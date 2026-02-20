@@ -9,15 +9,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Rota teste
+const JWT_SECRET = process.env.JWT_SECRET || "segredo_teste";
+
+/* ==============================
+   ROTA RAIZ
+============================== */
 app.get("/", (req, res) => {
-  res.json({ status: "The Circle API running" });
+  res.json({ status: "API rodando 🚀" });
 });
 
-// Rota login
+/* ==============================
+   LOGIN
+============================== */
 app.post("/login", (req, res) => {
-  console.log("BODY RECEBIDO:", req.body);
-
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -27,7 +31,7 @@ app.post("/login", (req, res) => {
   if (email === "teste@email.com" && password === "123456") {
     const token = jwt.sign(
       { email },
-      process.env.JWT_SECRET || "segredo_teste",
+      JWT_SECRET,
       { expiresIn: "1h" }
     );
 
@@ -35,6 +39,37 @@ app.post("/login", (req, res) => {
   }
 
   return res.status(401).json({ error: "Credenciais inválidas" });
+});
+
+/* ==============================
+   MIDDLEWARE DE AUTENTICAÇÃO
+============================== */
+function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    return res.status(401).json({ error: "Token não fornecido" });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "Token inválido ou expirado" });
+  }
+}
+
+/* ==============================
+   ROTA PROTEGIDA
+============================== */
+app.get("/perfil", authMiddleware, (req, res) => {
+  res.json({
+    message: "Acesso autorizado 🔐",
+    usuario: req.user
+  });
 });
 
 const PORT = process.env.PORT || 3000;
