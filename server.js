@@ -2,24 +2,22 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
+// Rota teste
 app.get("/", (req, res) => {
   res.json({ status: "The Circle API running" });
 });
 
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
-});
-const jwt = require("jsonwebtoken");
-
+// Rota login
 app.post("/login", (req, res) => {
+  console.log("BODY RECEBIDO:", req.body);
+
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -29,7 +27,7 @@ app.post("/login", (req, res) => {
   if (email === "teste@email.com" && password === "123456") {
     const token = jwt.sign(
       { email },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || "segredo_teste",
       { expiresIn: "1h" }
     );
 
@@ -38,6 +36,9 @@ app.post("/login", (req, res) => {
 
   return res.status(401).json({ error: "Credenciais inválidas" });
 });
- 
-// update
-// forçar novo deploy
+
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log("Servidor rodando na porta " + PORT);
+});
