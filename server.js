@@ -24,8 +24,10 @@ app.get("/", (req, res) => {
 app.post("/login", (req, res) => {
   const { email, password, twitterUsername } = req.body;
 
-  if (!email || !password) {
-    return res.status(400).json({ error: "Email e senha obrigatórios" });
+  if (!email || !password || !twitterUsername) {
+  return res.status(400).json({ 
+    error: "Email, senha e twitterUsername são obrigatórios" 
+  });
   }
 
   if (email === "teste@email.com" && password === "123456") {
