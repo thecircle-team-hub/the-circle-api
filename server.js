@@ -32,10 +32,10 @@ app.post("/login", (req, res) => {
 
   if (email === "teste@email.com" && password === "123456") {
     const token = jwt.sign(
-      { email },
-      JWT_SECRET,
-      { expiresIn: "1h" }
-    );
+  { email, twitterUsername },
+  JWT_SECRET,
+  { expiresIn: "1h" }
+);
 
     return res.json({ token });
   }
