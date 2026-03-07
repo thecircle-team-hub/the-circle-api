@@ -12,7 +12,7 @@ app.use(express.json());
 const JWT_SECRET = process.env.JWT_SECRET || "segredo_teste";
 
 /* ==============================
-   HEALTH CHECK / ROOT
+   ROOT / STATUS
 ============================== */
 app.get("/", (req, res) => {
   res.json({
@@ -26,6 +26,7 @@ app.get("/", (req, res) => {
    LOGIN
 ============================== */
 app.post("/login", (req, res) => {
+
   const { email, password, twitterUsername } = req.body;
 
   if (!email || !password || !twitterUsername) {
@@ -48,10 +49,11 @@ app.post("/login", (req, res) => {
   return res.status(401).json({
     error: "Credenciais inválidas"
   });
+
 });
 
 /* ==============================
-   MIDDLEWARE AUTH
+   AUTH MIDDLEWARE
 ============================== */
 function authMiddleware(req, res, next) {
 
@@ -80,10 +82,11 @@ function authMiddleware(req, res, next) {
     });
 
   }
+
 }
 
 /* ==============================
-   PERFIL (ROTA PROTEGIDA)
+   PERFIL PROTEGIDO
 ============================== */
 app.get("/perfil", authMiddleware, (req, res) => {
 
@@ -100,9 +103,24 @@ app.get("/perfil", authMiddleware, (req, res) => {
 app.get("/users", (req, res) => {
 
   const users = [
-    { id: 1, name: "Leonardo", country: "Brazil", points: 1200 },
-    { id: 2, name: "Jordan", country: "USA", points: 980 },
-    { id: 3, name: "Ana", country: "Japan", points: 850 }
+    {
+      id: "1",
+      username: "Leonardo",
+      xp: 1200,
+      level: 8
+    },
+    {
+      id: "2",
+      username: "Jordan",
+      xp: 980,
+      level: 7
+    },
+    {
+      id: "3",
+      username: "Ana",
+      xp: 850,
+      level: 6
+    }
   ];
 
   res.json(users);
@@ -115,10 +133,30 @@ app.get("/users", (req, res) => {
 app.get("/nodes", (req, res) => {
 
   const nodes = [
-    { id: 1, country: "Brazil", members: 120 },
-    { id: 2, country: "USA", members: 95 },
-    { id: 3, country: "Japan", members: 60 },
-    { id: 4, country: "Nigeria", members: 40 }
+    {
+      id: "1",
+      country: "Brazil",
+      status: "active",
+      activity: 87
+    },
+    {
+      id: "2",
+      country: "USA",
+      status: "active",
+      activity: 72
+    },
+    {
+      id: "3",
+      country: "Japan",
+      status: "stable",
+      activity: 65
+    },
+    {
+      id: "4",
+      country: "Nigeria",
+      status: "growing",
+      activity: 54
+    }
   ];
 
   res.json(nodes);
@@ -131,10 +169,24 @@ app.get("/nodes", (req, res) => {
 app.get("/leaderboard", (req, res) => {
 
   const leaderboard = [
-    { rank: 1, name: "Leonardo", points: 1200 },
-    { rank: 2, name: "Jordan", points: 980 },
-    { rank: 3, name: "Ana", points: 850 },
-    { rank: 4, name: "Carlos", points: 700 }
+    {
+      id: "1",
+      username: "Leonardo",
+      score: 1200,
+      rank: 1
+    },
+    {
+      id: "2",
+      username: "Jordan",
+      score: 980,
+      rank: 2
+    },
+    {
+      id: "3",
+      username: "Ana",
+      score: 850,
+      rank: 3
+    }
   ];
 
   res.json(leaderboard);
@@ -148,7 +200,7 @@ app.post("/telegram", (req, res) => {
 
   const { message, user } = req.body;
 
-  console.log("Mensagem do Telegram:", message);
+  console.log("Mensagem recebida do Telegram:", message);
 
   res.json({
     reply: "Mensagem recebida pelo bot 🤖"
