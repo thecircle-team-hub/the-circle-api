@@ -1,5 +1,4 @@
 require("dotenv").config();
-
 const express = require("express");
 const sqlite3 = require("sqlite3").verbose();
 const bcrypt = require("bcryptjs");
@@ -13,10 +12,10 @@ app.use(cors());
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
 
-// banco de dados
+// Banco de dados
 const db = new sqlite3.Database("./database.db");
 
-// criar tabela se não existir
+// Criar tabela se não existir
 db.run(`
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,7 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
 )
 `);
 
-// middleware de autenticação
+// Middleware de autenticação
 function autenticarToken(req, res, next) {
   const authHeader = req.headers["authorization"];
 
@@ -154,6 +153,20 @@ app.get("/leaderboard", (req, res) => {
         return res.status(500).json({ error: "Erro ao buscar ranking" });
       }
 
+      res.json(rows);
+    }
+  );
+});
+
+//
+// NODES (exemplo de API futura para nodes)
+//
+app.get("/nodes", (req, res) => {
+  db.all(
+    "SELECT id, country, status, activity FROM nodes",
+    [],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: "Erro ao buscar nodes" });
       res.json(rows);
     }
   );
