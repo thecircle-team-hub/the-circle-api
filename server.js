@@ -4,6 +4,8 @@ const sqlite3 = require("sqlite3").verbose();
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
+const fetch = require("node-fetch"); // se você ainda não tiver, instalar: npm install node-fetch
+const querystring = require("querystring");
 
 const app = express();
 app.use(express.json());
@@ -11,11 +13,16 @@ app.use(cors());
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3000";
+const TWITTER_CLIENT_ID = process.env.TWITTER_CLIENT_ID || "SEU_CLIENT_ID";
+const TWITTER_CLIENT_SECRET = process.env.TWITTER_CLIENT_SECRET || "SEU_CLIENT_SECRET";
 
-// Banco de dados
+// -----------------------------
+// BANCO DE DADOS
+// -----------------------------
 const db = new sqlite3.Database("./database.db");
 
-// Criar tabela se não existir
+// Criar tabela users
 db.run(`
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,55 +30,43 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT UNIQUE,
   password TEXT,
   xp INTEGER DEFAULT 0,
-  level INTEGER DEFAULT 1
+  level INTEGER DEFAULT 1,
+  twitterHandle TEXT,
+  twitterName TEXT,
+  twitterAvatar TEXT
 )
 `);
 
-// Middleware de autenticação
+// Middleware de autenticação JWT
 function autenticarToken(req, res, next) {
   const authHeader = req.headers["authorization"];
-
-  if (!authHeader) {
-    return res.status(401).json({ error: "Token não fornecido" });
-  }
-
+  if (!authHeader) return res.status(401).json({ error: "Token não fornecido" });
   const token = authHeader.split(" ")[1];
-
-  if (!token) {
-    return res.status(401).json({ error: "Token inválido" });
-  }
+  if (!token) return res.status(401).json({ error: "Token inválido" });
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: "Token inválido" });
-    }
-
+    if (err) return res.status(403).json({ error: "Token inválido" });
     req.user = user;
     next();
   });
 }
 
-//
+// -----------------------------
 // REGISTER
-//
+// -----------------------------
 app.post("/register", async (req, res) => {
-  const { username, email, password } = req.body;
-
+  const { username, email, password, twitterHandle, twitterName, twitterAvatar } = req.body;
   if (!username || !email || !password) {
-    return res
-      .status(400)
-      .json({ error: "username, email e password são obrigatórios" });
+    return res.status(400).json({ error: "username, email e password são obrigatórios" });
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
   db.run(
-    "INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
-    [username, email, hashedPassword],
+    "INSERT INTO users (username, email, password, twitterHandle, twitterName, twitterAvatar) VALUES (?, ?, ?, ?, ?, ?)",
+    [username, email, hashedPassword, twitterHandle || null, twitterName || null, twitterAvatar || null],
     function (err) {
-      if (err) {
-        return res.status(400).json({ error: "Usuário já existe" });
-      }
+      if (err) return res.status(400).json({ error: "Usuário já existe" });
 
       res.json({
         message: "Usuário registrado com sucesso",
@@ -81,100 +76,110 @@ app.post("/register", async (req, res) => {
   );
 });
 
-//
+// -----------------------------
 // LOGIN
-//
+// -----------------------------
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
-
   db.get("SELECT * FROM users WHERE email = ?", [email], async (err, user) => {
-    if (err || !user) {
-      return res.status(400).json({ error: "Usuário não encontrado" });
-    }
+    if (err || !user) return res.status(400).json({ error: "Usuário não encontrado" });
 
     const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) return res.status(401).json({ error: "Senha inválida" });
 
-    if (!validPassword) {
-      return res.status(401).json({ error: "Senha inválida" });
-    }
-
-    const token = jwt.sign(
-      {
-        id: user.id,
-        username: user.username,
-      },
-      JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: "7d" });
     res.json({ token });
   });
 });
 
-//
+// -----------------------------
 // PERFIL (ROTA PROTEGIDA)
-//
+// -----------------------------
 app.get("/perfil", autenticarToken, (req, res) => {
   db.get(
-    "SELECT id, username, xp, level FROM users WHERE id = ?",
+    "SELECT id, username, xp, level, twitterHandle, twitterName, twitterAvatar FROM users WHERE id = ?",
     [req.user.id],
     (err, user) => {
-      if (err || !user) {
-        return res.status(404).json({ error: "Usuário não encontrado" });
-      }
-
+      if (err || !user) return res.status(404).json({ error: "Usuário não encontrado" });
       res.json(user);
     }
   );
 });
 
-//
+// -----------------------------
 // LISTA DE USUÁRIOS
-//
+// -----------------------------
 app.get("/users", (req, res) => {
   db.all("SELECT id, username, xp, level FROM users", [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: "Erro ao buscar usuários" });
-    }
-
+    if (err) return res.status(500).json({ error: "Erro ao buscar usuários" });
     res.json(rows);
   });
 });
 
-//
+// -----------------------------
 // LEADERBOARD
-//
+// -----------------------------
 app.get("/leaderboard", (req, res) => {
-  db.all(
-    "SELECT username, xp, level FROM users ORDER BY xp DESC LIMIT 10",
-    [],
-    (err, rows) => {
-      if (err) {
-        return res.status(500).json({ error: "Erro ao buscar ranking" });
-      }
-
-      res.json(rows);
-    }
-  );
+  db.all("SELECT username, xp, level FROM users ORDER BY xp DESC LIMIT 10", [], (err, rows) => {
+    if (err) return res.status(500).json({ error: "Erro ao buscar ranking" });
+    res.json(rows);
+  });
 });
 
-//
-// NODES (exemplo de API futura para nodes)
-//
+// -----------------------------
+// NODES (exemplo futuro)
+// -----------------------------
 app.get("/nodes", (req, res) => {
-  db.all(
-    "SELECT id, country, status, activity FROM nodes",
-    [],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: "Erro ao buscar nodes" });
-      res.json(rows);
-    }
-  );
+  db.all("SELECT id, country, status, activity FROM nodes", [], (err, rows) => {
+    if (err) return res.status(500).json({ error: "Erro ao buscar nodes" });
+    res.json(rows);
+  });
 });
 
-//
-// START SERVER
-//
+// ==============================
+// TWITTER OAUTH
+// ==============================
+
+// Passo 1: Redireciona para o Twitter OAuth
+app.get("/auth/twitter", (req, res) => {
+  const params = querystring.stringify({
+    response_type: "code",
+    client_id: TWITTER_CLIENT_ID,
+    redirect_uri: `${BACKEND_URL}/auth/twitter/callback`,
+    scope: "tweet.read users.read offline.access",
+    state: "circle_state",
+    code_challenge: "challenge",
+    code_challenge_method: "plain",
+  });
+  res.redirect(`https://twitter.com/i/oauth2/authorize?${params}`);
+});
+
+// Passo 2: Callback do Twitter
+app.get("/auth/twitter/callback", async (req, res) => {
+  const { code } = req.query;
+
+  if (!code) return res.status(400).send("Code não fornecido pelo Twitter");
+
+  try {
+    // Aqui você trocaria o code pelo access token no Twitter
+    // MOCK: vamos criar dados fictícios
+    const twitterData = {
+      twitterHandle: "@cryptowarrior",
+      twitterName: "Crypto Warrior",
+      twitterAvatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix"
+    };
+
+    // Retornamos os dados como JSON (ou você pode redirecionar pro frontend)
+    res.json(twitterData);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao processar OAuth Twitter" });
+  }
+});
+
+// -----------------------------
+// INICIO DO SERVIDOR
+// -----------------------------
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
