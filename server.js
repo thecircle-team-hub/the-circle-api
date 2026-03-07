@@ -4,7 +4,7 @@ const sqlite3 = require("sqlite3").verbose();
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
-const fetch = require("node-fetch"); // se você ainda não tiver, instalar: npm install node-fetch
+const fetch = require("node-fetch");
 const querystring = require("querystring");
 
 const app = express();
@@ -13,16 +13,16 @@ app.use(cors());
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3000";
-const TWITTER_CLIENT_ID = process.env.TWITTER_CLIENT_ID || "SEU_CLIENT_ID";
-const TWITTER_CLIENT_SECRET = process.env.TWITTER_CLIENT_SECRET || "SEU_CLIENT_SECRET";
+const BACKEND_URL = process.env.BACKEND_URL; // Ex: https://the-circle-api.onrender.com
+const TWITTER_CLIENT_ID = DgHDw43bCyBhYil0zQUb7egPY;
+const TWITTER_CLIENT_SECRET = fkCCzw3arHscZlrJkDjN2R53otLZFs3IRjYRap8P1oSWw257gF;
+const TWITTER_CALLBACK_URL = process.env.TWITTER_CALLBACK_URL; // Ex: https://the-circle-api.onrender.com/auth/twitter/callback
 
 // -----------------------------
 // BANCO DE DADOS
 // -----------------------------
 const db = new sqlite3.Database("./database.db");
 
-// Criar tabela users
 db.run(`
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS users (
 )
 `);
 
-// Middleware de autenticação JWT
+// Middleware JWT
 function autenticarToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   if (!authHeader) return res.status(401).json({ error: "Token não fornecido" });
@@ -93,7 +93,7 @@ app.post("/login", (req, res) => {
 });
 
 // -----------------------------
-// PERFIL (ROTA PROTEGIDA)
+// PERFIL
 // -----------------------------
 app.get("/perfil", autenticarToken, (req, res) => {
   db.get(
@@ -127,7 +127,7 @@ app.get("/leaderboard", (req, res) => {
 });
 
 // -----------------------------
-// NODES (exemplo futuro)
+// NODES
 // -----------------------------
 app.get("/nodes", (req, res) => {
   db.all("SELECT id, country, status, activity FROM nodes", [], (err, rows) => {
@@ -140,12 +140,12 @@ app.get("/nodes", (req, res) => {
 // TWITTER OAUTH
 // ==============================
 
-// Passo 1: Redireciona para o Twitter OAuth
+// Passo 1: redireciona para o Twitter
 app.get("/auth/twitter", (req, res) => {
   const params = querystring.stringify({
     response_type: "code",
     client_id: TWITTER_CLIENT_ID,
-    redirect_uri: `${BACKEND_URL}/auth/twitter/callback`,
+    redirect_uri: TWITTER_CALLBACK_URL,
     scope: "tweet.read users.read offline.access",
     state: "circle_state",
     code_challenge: "challenge",
@@ -154,22 +154,42 @@ app.get("/auth/twitter", (req, res) => {
   res.redirect(`https://twitter.com/i/oauth2/authorize?${params}`);
 });
 
-// Passo 2: Callback do Twitter
+// Passo 2: callback do Twitter
 app.get("/auth/twitter/callback", async (req, res) => {
   const { code } = req.query;
-
   if (!code) return res.status(400).send("Code não fornecido pelo Twitter");
 
   try {
-    // Aqui você trocaria o code pelo access token no Twitter
-    // MOCK: vamos criar dados fictícios
+    // 1️⃣ Troca code pelo access_token
+    const tokenResponse = await fetch("https://api.twitter.com/2/oauth2/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Authorization": "Basic " + Buffer.from(`${TWITTER_CLIENT_ID}:${TWITTER_CLIENT_SECRET}`).toString("base64")
+      },
+      body: querystring.stringify({
+        code,
+        grant_type: "authorization_code",
+        redirect_uri: TWITTER_CALLBACK_URL,
+        code_verifier: "challenge"
+      })
+    });
+    const tokenData = await tokenResponse.json();
+    const access_token = tokenData.access_token;
+
+    // 2️⃣ Buscar dados do usuário
+    const userResponse = await fetch("https://api.twitter.com/2/users/me", {
+      headers: { "Authorization": `Bearer ${access_token}` }
+    });
+    const userData = await userResponse.json();
+
     const twitterData = {
-      twitterHandle: "@cryptowarrior",
-      twitterName: "Crypto Warrior",
-      twitterAvatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix"
+      twitterHandle: `@${userData.data.username}`,
+      twitterName: userData.data.name,
+      twitterAvatar: userData.data.profile_image_url
     };
 
-    // Retornamos os dados como JSON (ou você pode redirecionar pro frontend)
+    // 3️⃣ Retorna pro frontend
     res.json(twitterData);
   } catch (err) {
     console.error(err);
