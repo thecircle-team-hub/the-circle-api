@@ -3,6 +3,8 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+const sqlite3 = require("sqlite3").verbose();
 
 const app = express();
 
@@ -12,49 +14,118 @@ app.use(express.json());
 const JWT_SECRET = process.env.JWT_SECRET || "segredo_teste";
 
 /* ==============================
-   ROOT / STATUS
+   DATABASE
 ============================== */
+
+const db = new sqlite3.Database("./database.sqlite");
+
+db.serialize(() => {
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE,
+      email TEXT UNIQUE,
+      password TEXT,
+      xp INTEGER DEFAULT 0,
+      level INTEGER DEFAULT 1
+    )
+  `);
+
+});
+
+/* ==============================
+   ROOT
+============================== */
+
 app.get("/", (req, res) => {
   res.json({
     status: "API rodando 🚀",
-    service: "The Circle API",
-    version: "1.0"
+    service: "The Circle API"
   });
+});
+
+/* ==============================
+   REGISTER
+============================== */
+
+app.post("/register", async (req, res) => {
+
+  const { username, email, password } = req.body;
+
+  if (!username || !email || !password) {
+    return res.status(400).json({
+      error: "username, email e password são obrigatórios"
+    });
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  db.run(
+    `INSERT INTO users (username,email,password) VALUES (?,?,?)`,
+    [username, email, hashedPassword],
+    function (err) {
+
+      if (err) {
+        return res.status(400).json({
+          error: "Usuário ou email já existe"
+        });
+      }
+
+      res.json({
+        message: "Usuário registrado com sucesso",
+        userId: this.lastID
+      });
+
+    }
+  );
+
 });
 
 /* ==============================
    LOGIN
 ============================== */
+
 app.post("/login", (req, res) => {
 
-  const { email, password, twitterUsername } = req.body;
+  const { email, password } = req.body;
 
-  if (!email || !password || !twitterUsername) {
-    return res.status(400).json({
-      error: "Email, senha e twitterUsername são obrigatórios"
-    });
-  }
+  db.get(
+    `SELECT * FROM users WHERE email = ?`,
+    [email],
+    async (err, user) => {
 
-  if (email === "teste@email.com" && password === "123456") {
+      if (!user) {
+        return res.status(401).json({
+          error: "Usuário não encontrado"
+        });
+      }
 
-    const token = jwt.sign(
-      { email, twitterUsername },
-      JWT_SECRET,
-      { expiresIn: "1h" }
-    );
+      const valid = await bcrypt.compare(password, user.password);
 
-    return res.json({ token });
-  }
+      if (!valid) {
+        return res.status(401).json({
+          error: "Senha inválida"
+        });
+      }
 
-  return res.status(401).json({
-    error: "Credenciais inválidas"
-  });
+      const token = jwt.sign(
+        { id: user.id, username: user.username },
+        JWT_SECRET,
+        { expiresIn: "7d" }
+      );
+
+      res.json({ token });
+
+    }
+  );
 
 });
 
 /* ==============================
    AUTH MIDDLEWARE
 ============================== */
+
 function authMiddleware(req, res, next) {
 
   const authHeader = req.headers.authorization;
@@ -78,7 +149,7 @@ function authMiddleware(req, res, next) {
   } catch (err) {
 
     return res.status(401).json({
-      error: "Token inválido ou expirado"
+      error: "Token inválido"
     });
 
   }
@@ -86,131 +157,79 @@ function authMiddleware(req, res, next) {
 }
 
 /* ==============================
-   PERFIL PROTEGIDO
+   PERFIL
 ============================== */
+
 app.get("/perfil", authMiddleware, (req, res) => {
 
-  res.json({
-    message: "Acesso autorizado 🔐",
-    usuario: req.user
-  });
+  db.get(
+    `SELECT id,username,xp,level FROM users WHERE id = ?`,
+    [req.user.id],
+    (err, user) => {
+
+      res.json(user);
+
+    }
+  );
 
 });
 
 /* ==============================
    USERS
 ============================== */
+
 app.get("/users", (req, res) => {
 
-  const users = [
-    {
-      id: "1",
-      username: "Leonardo",
-      xp: 1200,
-      level: 8
-    },
-    {
-      id: "2",
-      username: "Jordan",
-      xp: 980,
-      level: 7
-    },
-    {
-      id: "3",
-      username: "Ana",
-      xp: 850,
-      level: 6
+  db.all(
+    `SELECT id,username,xp,level FROM users`,
+    [],
+    (err, rows) => {
+
+      res.json(rows);
+
     }
-  ];
-
-  res.json(users);
-
-});
-
-/* ==============================
-   NODES (COMUNIDADES POR PAÍS)
-============================== */
-app.get("/nodes", (req, res) => {
-
-  const nodes = [
-    {
-      id: "1",
-      country: "Brazil",
-      status: "active",
-      activity: 87
-    },
-    {
-      id: "2",
-      country: "USA",
-      status: "active",
-      activity: 72
-    },
-    {
-      id: "3",
-      country: "Japan",
-      status: "stable",
-      activity: 65
-    },
-    {
-      id: "4",
-      country: "Nigeria",
-      status: "growing",
-      activity: 54
-    }
-  ];
-
-  res.json(nodes);
+  );
 
 });
 
 /* ==============================
    LEADERBOARD
 ============================== */
+
 app.get("/leaderboard", (req, res) => {
 
-  const leaderboard = [
-    {
-      id: "1",
-      username: "Leonardo",
-      score: 1200,
-      rank: 1
-    },
-    {
-      id: "2",
-      username: "Jordan",
-      score: 980,
-      rank: 2
-    },
-    {
-      id: "3",
-      username: "Ana",
-      score: 850,
-      rank: 3
+  db.all(
+    `SELECT id,username,xp as score,
+    RANK() OVER (ORDER BY xp DESC) as rank
+    FROM users`,
+    [],
+    (err, rows) => {
+
+      res.json(rows);
+
     }
-  ];
-
-  res.json(leaderboard);
+  );
 
 });
 
 /* ==============================
-   TELEGRAM BOT ENDPOINT
+   NODES (MOCK POR ENQUANTO)
 ============================== */
-app.post("/telegram", (req, res) => {
 
-  const { message, user } = req.body;
+app.get("/nodes", (req, res) => {
 
-  console.log("Mensagem recebida do Telegram:", message);
-
-  res.json({
-    reply: "Mensagem recebida pelo bot 🤖"
-  });
+  res.json([
+    { id: "1", country: "Brazil", status: "active", activity: 80 },
+    { id: "2", country: "USA", status: "active", activity: 75 },
+    { id: "3", country: "Japan", status: "stable", activity: 65 }
+  ]);
 
 });
 
 /* ==============================
-   SERVER START
+   SERVER
 ============================== */
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
