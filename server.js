@@ -1,239 +1,167 @@
 require("dotenv").config();
 
 const express = require("express");
-const cors = require("cors");
-const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
 const sqlite3 = require("sqlite3").verbose();
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const cors = require("cors");
 
 const app = express();
-
-app.use(cors());
 app.use(express.json());
+app.use(cors());
 
-const JWT_SECRET = process.env.JWT_SECRET || "segredo_teste";
+const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
 
-/* ==============================
-   DATABASE
-============================== */
+// banco de dados
+const db = new sqlite3.Database("./database.db");
 
-const db = new sqlite3.Database("./database.sqlite");
+// criar tabela se não existir
+db.run(`
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT UNIQUE,
+  email TEXT UNIQUE,
+  password TEXT,
+  xp INTEGER DEFAULT 0,
+  level INTEGER DEFAULT 1
+)
+`);
 
-db.serialize(() => {
+// middleware de autenticação
+function autenticarToken(req, res, next) {
+  const authHeader = req.headers["authorization"];
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE,
-      email TEXT UNIQUE,
-      password TEXT,
-      xp INTEGER DEFAULT 0,
-      level INTEGER DEFAULT 1
-    )
-  `);
+  if (!authHeader) {
+    return res.status(401).json({ error: "Token não fornecido" });
+  }
 
-});
+  const token = authHeader.split(" ")[1];
 
-/* ==============================
-   ROOT
-============================== */
+  if (!token) {
+    return res.status(401).json({ error: "Token inválido" });
+  }
 
-app.get("/", (req, res) => {
-  res.json({
-    status: "API rodando 🚀",
-    service: "The Circle API"
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: "Token inválido" });
+    }
+
+    req.user = user;
+    next();
   });
-});
+}
 
-/* ==============================
-   REGISTER
-============================== */
-
+//
+// REGISTER
+//
 app.post("/register", async (req, res) => {
-
   const { username, email, password } = req.body;
 
   if (!username || !email || !password) {
-    return res.status(400).json({
-      error: "username, email e password são obrigatórios"
-    });
+    return res
+      .status(400)
+      .json({ error: "username, email e password são obrigatórios" });
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
   db.run(
-    `INSERT INTO users (username,email,password) VALUES (?,?,?)`,
+    "INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
     [username, email, hashedPassword],
     function (err) {
-
       if (err) {
-        return res.status(400).json({
-          error: "Usuário ou email já existe"
-        });
+        return res.status(400).json({ error: "Usuário já existe" });
       }
 
       res.json({
         message: "Usuário registrado com sucesso",
-        userId: this.lastID
+        userId: this.lastID,
       });
-
     }
   );
-
 });
 
-/* ==============================
-   LOGIN
-============================== */
-
+//
+// LOGIN
+//
 app.post("/login", (req, res) => {
-
   const { email, password } = req.body;
 
-  db.get(
-    `SELECT * FROM users WHERE email = ?`,
-    [email],
-    async (err, user) => {
-
-      if (!user) {
-        return res.status(401).json({
-          error: "Usuário não encontrado"
-        });
-      }
-
-      const valid = await bcrypt.compare(password, user.password);
-
-      if (!valid) {
-        return res.status(401).json({
-          error: "Senha inválida"
-        });
-      }
-
-      const token = jwt.sign(
-        { id: user.id, username: user.username },
-        JWT_SECRET,
-        { expiresIn: "7d" }
-      );
-
-      res.json({ token });
-
+  db.get("SELECT * FROM users WHERE email = ?", [email], async (err, user) => {
+    if (err || !user) {
+      return res.status(400).json({ error: "Usuário não encontrado" });
     }
-  );
 
+    const validPassword = await bcrypt.compare(password, user.password);
+
+    if (!validPassword) {
+      return res.status(401).json({ error: "Senha inválida" });
+    }
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        username: user.username,
+      },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.json({ token });
+  });
 });
 
-/* ==============================
-   AUTH MIDDLEWARE
-============================== */
-
-function authMiddleware(req, res, next) {
-
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader) {
-    return res.status(401).json({
-      error: "Token não fornecido"
-    });
-  }
-
-  const token = authHeader.split(" ")[1];
-
-  try {
-
-    const decoded = jwt.verify(token, JWT_SECRET);
-
-    req.user = decoded;
-
-    next();
-
-  } catch (err) {
-
-    return res.status(401).json({
-      error: "Token inválido"
-    });
-
-  }
-
-}
-
-/* ==============================
-   PERFIL
-============================== */
-
-app.get("/perfil", authMiddleware, (req, res) => {
-
+//
+// PERFIL (ROTA PROTEGIDA)
+//
+app.get("/perfil", autenticarToken, (req, res) => {
   db.get(
-    `SELECT id,username,xp,level FROM users WHERE id = ?`,
+    "SELECT id, username, xp, level FROM users WHERE id = ?",
     [req.user.id],
     (err, user) => {
+      if (err || !user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
 
       res.json(user);
-
     }
   );
-
 });
 
-/* ==============================
-   USERS
-============================== */
-
+//
+// LISTA DE USUÁRIOS
+//
 app.get("/users", (req, res) => {
-
-  db.all(
-    `SELECT id,username,xp,level FROM users`,
-    [],
-    (err, rows) => {
-
-      res.json(rows);
-
+  db.all("SELECT id, username, xp, level FROM users", [], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: "Erro ao buscar usuários" });
     }
-  );
 
+    res.json(rows);
+  });
 });
 
-/* ==============================
-   LEADERBOARD
-============================== */
-
+//
+// LEADERBOARD
+//
 app.get("/leaderboard", (req, res) => {
-
   db.all(
-    `SELECT id,username,xp as score,
-    RANK() OVER (ORDER BY xp DESC) as rank
-    FROM users`,
+    "SELECT username, xp, level FROM users ORDER BY xp DESC LIMIT 10",
     [],
     (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: "Erro ao buscar ranking" });
+      }
 
       res.json(rows);
-
     }
   );
-
 });
 
-/* ==============================
-   NODES (MOCK POR ENQUANTO)
-============================== */
-
-app.get("/nodes", (req, res) => {
-
-  res.json([
-    { id: "1", country: "Brazil", status: "active", activity: 80 },
-    { id: "2", country: "USA", status: "active", activity: 75 },
-    { id: "3", country: "Japan", status: "stable", activity: 65 }
-  ]);
-
-});
-
-/* ==============================
-   SERVER
-============================== */
-
-const PORT = process.env.PORT || 3000;
-
+//
+// START SERVER
+//
 app.listen(PORT, () => {
-
-  console.log("Servidor rodando na porta " + PORT);
-
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
